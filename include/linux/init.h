@@ -264,6 +264,9 @@ extern struct module __this_module;
 	    ".long	" __stringify(__stub) " - .	\n"	\
 	    ".previous					\n");	\
 	static_assert(__same_type(initcall_t, &fn));
+#elif defined(__MACH__)	/* macOS PoC: drop ELF initcall section to COMPILE; runtime needs a Mach-O initcall section + section$start$ boundary (see MACOS_PORT_NOTES.md) */
+#define ____define_initcall(fn, __unused, __name, __sec)	\
+	static initcall_t __name __used = fn;
 #else
 #define ____define_initcall(fn, __unused, __name, __sec)	\
 	static initcall_t __name __used 			\
@@ -280,6 +283,16 @@ extern struct module __this_module;
 	__unique_initcall(fn, id, __sec, __initcall_id(fn))
 
 #define __define_initcall(fn, id) ___define_initcall(fn, id, .initcall##id)
+
+#if defined(__MACH__)
+/* macOS: ld64 has no linker script. Place each initcall in a per-level Mach-O
+ * section "__DATA,__ic<id>"; the patched do_initcalls() walks them in order via
+ * ld64 section$start$/$end$ boundary symbols (see arch/lkl glue). */
+#undef __define_initcall
+#define __define_initcall(fn, id)					\
+	static initcall_t __mach_ic_##fn##_##id __used			\
+		__attribute__((__section__("__DATA,__ic" #id))) = fn;
+#endif
 
 /*
  * Early initcalls run before initializing SMP.

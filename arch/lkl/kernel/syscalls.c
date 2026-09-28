@@ -21,7 +21,21 @@ static asmlinkage long sys_virtio_mmio_device_add(long base, long size,
 
 static asmlinkage long sys_new_thread_group_leader(void);
 
+#if defined(__MACH__)
+/*
+ * Apple's arm64 ABI passes variadic arguments on the stack, but the real
+ * syscall handlers are non-variadic and read their fixed args from registers
+ * x0-x5. Calling them through a variadic pointer therefore misplaces every
+ * argument after the first (e.g. a path pointer lands on the stack while the
+ * handler reads register x1). Use a non-variadic 6-arg type so all params go
+ * in registers; handlers that take fewer simply ignore the extra registers.
+ * (On Linux/AAPCS64 both forms pass the first 8 args in registers, so the
+ * upstream variadic typedef happens to work there.)
+ */
+typedef long (*syscall_handler_t)(long, long, long, long, long, long);
+#else
 typedef long (*syscall_handler_t)(long arg1, ...);
+#endif
 
 #undef __SYSCALL
 #define __SYSCALL(nr, sym)[nr] = sym,

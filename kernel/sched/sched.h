@@ -2496,10 +2496,26 @@ static inline void put_prev_set_next_task(struct rq *rq,
  *
  * Also enforce alignment on the instance, not the type, to guarantee layout.
  */
+#if defined(__MACH__)
+/*
+ * macOS/Mach-O: the compat header neutralizes the kernel __section() macro and
+ * ld64 has no linker script, so the per-class sections + ordering the vmlinux
+ * lds relies on are gone. Place every sched_class into one Mach-O section
+ * (__DATA,__schedclass) using the raw GCC attribute (not the neutralized
+ * macro). Ordering within the section is controlled by object order in the
+ * ld -r merge (fair.o before build_policy.o => fair, idle, rt, dl); the glue
+ * brackets the block with section$start$/$end$__DATA$__schedclass.
+ */
+#define DEFINE_SCHED_CLASS(name) \
+const struct sched_class name##_sched_class \
+	__attribute__((__aligned__(__alignof__(struct sched_class)), \
+		       __section__("__DATA,__schedclass"), __used__))
+#else
 #define DEFINE_SCHED_CLASS(name) \
 const struct sched_class name##_sched_class \
 	__aligned(__alignof__(struct sched_class)) \
 	__section("__" #name "_sched_class")
+#endif
 
 /* Defined in include/asm-generic/vmlinux.lds.h */
 extern struct sched_class __sched_class_highest[];

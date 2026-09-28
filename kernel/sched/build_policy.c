@@ -47,9 +47,15 @@
 
 /* Source code modules: */
 
-#include "idle.c"
-
-#include "rt.c"
+/*
+ * idle.c is built separately (build_idle.c) and deadline.c is pulled in before
+ * rt.c so that, on macOS/Mach-O (no linker script), the DEFINE_SCHED_CLASS
+ * instances land in the right address order. The vmlinux linker script needs
+ * __sched_class_highest..lowest laid out as dl < rt < fair < idle; with one
+ * Mach-O section ordered by object/emit order that means this object must emit
+ * dl, rt (in that order) and idle must follow fair (a separate object). The
+ * order is irrelevant to the ELF build (its lds re-sorts by section).
+ */
 
 #ifdef CONFIG_SMP
 # include "cpudeadline.c"
@@ -58,6 +64,8 @@
 
 #include "cputime.c"
 #include "deadline.c"
+
+#include "rt.c"
 
 #ifdef CONFIG_SCHED_CLASS_EXT
 # include "ext.c"

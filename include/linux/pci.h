@@ -2183,6 +2183,13 @@ enum pci_fixup_pass {
 };
 
 #ifdef CONFIG_HAVE_ARCH_PREL32_RELOCATIONS
+#if defined(__MACH__)
+/* macOS PoC: ld64 rejects ELF `.section`; LKL (virtio, no real PCI HW) doesn't
+ * need PCI quirk tables. Keep the hook addressable, drop the fixup-table entry. */
+#define ___DECLARE_PCI_FIXUP_SECTION(sec, name, vendor, device, class,	\
+				    class_shift, hook)			\
+	__ADDRESSABLE(hook)
+#else
 #define ___DECLARE_PCI_FIXUP_SECTION(sec, name, vendor, device, class,	\
 				    class_shift, hook)			\
 	__ADDRESSABLE(hook)						\
@@ -2192,6 +2199,7 @@ enum pci_fixup_pass {
 	    ".long "	#class ", " #class_shift "		\n"	\
 	    ".long "	#hook " - .				\n"	\
 	    ".previous						\n");
+#endif
 
 /*
  * Clang's LTO may rename static functions in C, but has no way to

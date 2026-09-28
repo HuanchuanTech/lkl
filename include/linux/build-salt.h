@@ -10,6 +10,10 @@
 #define BUILD_SALT \
        ELFNOTE(Linux, LINUX_ELFNOTE_BUILD_SALT, .asciz CONFIG_BUILD_SALT)
 
+#elif defined(__MACH__)
+
+#define BUILD_SALT	/* macOS PoC: ELF note is ld64-incompatible and unused here */
+
 #else
 
 #define BUILD_SALT \

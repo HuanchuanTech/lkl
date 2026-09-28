@@ -31,6 +31,17 @@
 /* Let's see if the host has semaphore.h */
 #include <unistd.h>
 
+#if defined(__APPLE__)
+/* macOS: unnamed POSIX sems (sem_init) are unsupported -> force the pthread
+ * mutex+cond fallback below; GCD provides the one-shot timer; macOS spells
+ * anonymous mmap MAP_ANON. */
+#undef _POSIX_SEMAPHORES
+#include <dispatch/dispatch.h>
+#ifndef MAP_ANONYMOUS
+#define MAP_ANONYMOUS MAP_ANON
+#endif
+#endif
+
 #ifdef _POSIX_SEMAPHORES
 #include <semaphore.h>
 /* TODO(pscollins): We don't support fork() for now, but maybe one day
@@ -262,6 +273,19 @@ static int thread_equal(lkl_thread_t a, lkl_thread_t b)
 
 void *thread_stack(unsigned long *size)
 {
+#ifdef __APPLE__
+	/* Darwin has no pthread_getattr_np; pthread_get_stackaddr_np returns the
+	 * stack base (highest address, since the stack grows down), so the lowest
+	 * address is base - size. */
+	pthread_t self = pthread_self();
+	size_t stack_size = pthread_get_stacksize_np(self);
+	void *thread_stack = (char *)pthread_get_stackaddr_np(self) - stack_size;
+
+	if (size)
+		*size = stack_size;
+
+	return thread_stack;
+#else
 	pthread_attr_t thread_attr;
 	size_t stack_size;
 	void *thread_stack;
@@ -278,6 +302,7 @@ void *thread_stack(unsigned long *size)
 		*size = stack_size;
 
 	return thread_stack;
+#endif
 }
 
 static struct lkl_tls_key *tsd_alloc(void (*destructor)(void *))
@@ -400,6 +425,58 @@ static unsigned long long time_ns(void)
 	return 1e9*ts.tv_sec + ts.tv_nsec;
 }
 
+#if defined(__APPLE__)
+/* macOS has no POSIX timer_create(); use a GCD one-shot dispatch-source timer. */
+struct lkl_apple_timer {
+	dispatch_source_t src;
+	void (*fn)(void);
+};
+
+static void *timer_alloc(void (*fn)(void))
+{
+	struct lkl_apple_timer *t = malloc(sizeof(*t));
+
+	if (!t)
+		return NULL;
+	t->fn = fn;
+	t->src = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0,
+			dispatch_get_global_queue(QOS_CLASS_DEFAULT, 0));
+	if (!t->src) {
+		free(t);
+		return NULL;
+	}
+	dispatch_source_set_event_handler(t->src, ^{ t->fn(); });
+	dispatch_resume(t->src);
+	return t;
+}
+
+static int timer_set_oneshot(void *_t, unsigned long ns)
+{
+	struct lkl_apple_timer *t = _t;
+
+	dispatch_source_set_timer(t->src,
+		dispatch_time(DISPATCH_TIME_NOW, (int64_t)ns),
+		DISPATCH_TIME_FOREVER, 0);
+	return 0;
+}
+
+static void timer_free(void *_t)
+{
+	struct lkl_apple_timer *t = _t;
+	dispatch_source_t src = t->src;
+
+	/* Cancellation is asynchronous: an event handler block (^{ t->fn(); }) may
+	 * still be running on a global queue and dereferencing `t`. Release the
+	 * source and free `t` from the cancel handler, which GCD runs only after the
+	 * last event handler has returned and no further handlers can fire — avoiding
+	 * a use-after-free that the previous inline release+free could hit. */
+	dispatch_source_set_cancel_handler(src, ^{
+		dispatch_release(src);
+		free(t);
+	});
+	dispatch_source_cancel(src);
+}
+#else
 static void lkl_timer_callback(union sigval sv)
 {
 	void (*fn)(void) = sv.sival_ptr;
@@ -445,6 +522,7 @@ static void timer_free(void *_timer)
 
 	timer_delete(timer);
 }
+#endif
 
 static void panic(void)
 {
@@ -492,6 +570,13 @@ static inline int get_prot(enum lkl_prot lkl_prot)
 #elif defined(__linux__)
 #ifndef MAP_FIXED_NOREPLACE
 #define MAP_FIXED_NOREPLACE 0
+#endif
+#elif defined(__APPLE__)
+#ifndef MAP_FIXED_NOREPLACE
+#define MAP_FIXED_NOREPLACE 0
+#endif
+#ifndef MAP_NORESERVE
+#define MAP_NORESERVE 0
 #endif
 #endif
 

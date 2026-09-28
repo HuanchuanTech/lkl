@@ -37,5 +37,8 @@ static int __init lkl_console_init(void)
 	register_console(&lkl_console);
 	return 0;
 }
-core_initcall(lkl_console_init);
+/* macOS bring-up: register at early_initcall (before do_initcalls) so the
+ * buffered boot log (banner, mm/sched init, every initcall) flushes to the host
+ * print op as early as possible. Was core_initcall. */
+early_initcall(lkl_console_init);
 

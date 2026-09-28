@@ -284,6 +284,21 @@ struct kparam_array
 
 /* This is the fundamental function for registering boot/module
    parameters. */
+#if defined(__MACH__)
+/* macOS/Mach-O: the kernel __section() macro is neutralized by the compat
+ * header, so kernel_param entries would scatter into .data and parse_args()
+ * (start_kernel boot cmdline, e.g. virtio_mmio.device=) would see an empty
+ * table. Place them in one real Mach-O section via the raw attribute; the glue
+ * brackets it with section$start$/$end$__DATA$__kparam as __start/__stop___param.
+ * Order is irrelevant (params are matched by name). */
+#define __module_param_call(prefix, name, ops, arg, perm, level, flags)	\
+	static const char __param_str_##name[] = prefix #name;		\
+	static struct kernel_param __moduleparam_const __param_##name	\
+	__used __attribute__((__section__("__DATA,__kparam")))		\
+	__aligned(__alignof__(struct kernel_param))			\
+	= { __param_str_##name, THIS_MODULE, ops,			\
+	    VERIFY_OCTAL_PERMISSIONS(perm), level, flags, { arg } }
+#else
 #define __module_param_call(prefix, name, ops, arg, perm, level, flags)	\
 	/* Default value instead of permissions? */			\
 	static const char __param_str_##name[] = prefix #name;		\
@@ -292,6 +307,7 @@ struct kparam_array
 	__aligned(__alignof__(struct kernel_param))			\
 	= { __param_str_##name, THIS_MODULE, ops,			\
 	    VERIFY_OCTAL_PERMISSIONS(perm), level, flags, { arg } }
+#endif
 
 /*
  * Useful for describing a set/get pair used only once (i.e. for this

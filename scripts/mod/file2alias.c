@@ -36,6 +36,10 @@ typedef uint16_t	__u16;
 typedef unsigned char	__u8;
 
 /* UUID types for backward compatibility, don't use in new code */
+#ifdef __APPLE__	/* avoid clash with macOS <sys/_types/_uuid_t.h> array uuid_t */
+#define guid_t __kernel_guid_t
+#define uuid_t __kernel_uuid_t
+#endif
 typedef struct {
 	__u8 b[16];
 } guid_t;

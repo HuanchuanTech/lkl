@@ -46,9 +46,14 @@
  * linkage errors occur due the compiler generating the wrong code to access
  * that section.
  */
+#if defined(__MACH__)	/* macOS port PoC: neutralize percpu ELF section placement */
+#define __PCPU_ATTRS(sec)						\
+	__percpu PER_CPU_ATTRIBUTES
+#else
 #define __PCPU_ATTRS(sec)						\
 	__percpu __attribute__((section(PER_CPU_BASE_SECTION sec)))	\
 	PER_CPU_ATTRIBUTES
+#endif
 
 #define __PCPU_DUMMY_ATTRS						\
 	__section(".discard") __attribute__((unused))

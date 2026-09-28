@@ -1286,6 +1286,7 @@ int __init_or_module do_one_initcall(initcall_t fn)
 }
 
 
+#ifndef __MACH__
 static initcall_entry_t *initcall_levels[] __initdata = {
 	__initcall0_start,
 	__initcall1_start,
@@ -1297,6 +1298,7 @@ static initcall_entry_t *initcall_levels[] __initdata = {
 	__initcall7_start,
 	__initcall_end,
 };
+#endif
 
 /* Keep these in sync with initcalls in include/linux/init.h */
 static const char *initcall_level_names[] __initdata = {
@@ -1316,6 +1318,7 @@ static int __init ignore_unknown_bootoption(char *param, char *val,
 	return 0;
 }
 
+#ifndef __MACH__
 static void __init do_initcall_level(int level, char *command_line)
 {
 	initcall_entry_t *fn;
@@ -1349,6 +1352,90 @@ static void __init do_initcalls(void)
 
 	kfree(command_line);
 }
+#else /* __MACH__ */
+/*
+ * macOS/Mach-O: initcalls live in per-level __DATA,__ic<id> sections (see the
+ * __define_initcall() patch in include/linux/init.h). ld64 does NOT lay those
+ * sections out contiguously the way the vmlinux linker script does, so the
+ * level-range iteration (__initcallN_start .. __initcallN+1_start) is invalid.
+ * Walk each section directly via ld64 section$start$/$end$ synthetic symbols.
+ * A glue object (boot_glue) emits a NULL placeholder into every section so the
+ * synthetic symbols always resolve even for empty levels; NULL entries skipped.
+ */
+#define LKL_IC_SEC(field, sect) \
+	extern initcall_entry_t __ic_##field##_start[] __asm("section$start$__DATA$" sect); \
+	extern initcall_entry_t __ic_##field##_end[]   __asm("section$end$__DATA$" sect)
+LKL_IC_SEC(early, "__icearly");
+LKL_IC_SEC(l0, "__ic0");  LKL_IC_SEC(l0s, "__ic0s");
+LKL_IC_SEC(l1, "__ic1");  LKL_IC_SEC(l1s, "__ic1s");
+LKL_IC_SEC(l2, "__ic2");  LKL_IC_SEC(l2s, "__ic2s");
+LKL_IC_SEC(l3, "__ic3");  LKL_IC_SEC(l3s, "__ic3s");
+LKL_IC_SEC(l4, "__ic4");  LKL_IC_SEC(l4s, "__ic4s");
+LKL_IC_SEC(l5, "__ic5");  LKL_IC_SEC(l5s, "__ic5s");  LKL_IC_SEC(rootfs, "__icrootfs");
+LKL_IC_SEC(l6, "__ic6");  LKL_IC_SEC(l6s, "__ic6s");
+LKL_IC_SEC(l7, "__ic7");  LKL_IC_SEC(l7s, "__ic7s");
+
+static void __init lkl_ic_run(initcall_entry_t *start, initcall_entry_t *end)
+{
+	initcall_entry_t *fn;
+
+	for (fn = start; fn < end; fn++) {
+		initcall_t call = initcall_from_entry(fn);
+
+		if (call)
+			do_one_initcall(call);
+	}
+}
+
+static void __init do_initcall_level(int level, char *command_line)
+{
+	parse_args(initcall_level_names[level],
+		   command_line, __start___param,
+		   __stop___param - __start___param,
+		   level, level,
+		   NULL, ignore_unknown_bootoption);
+
+	trace_initcall_level(initcall_level_names[level]);
+	switch (level) {
+	case 0: lkl_ic_run(__ic_l0_start, __ic_l0_end);
+		lkl_ic_run(__ic_l0s_start, __ic_l0s_end); break;
+	case 1: lkl_ic_run(__ic_l1_start, __ic_l1_end);
+		lkl_ic_run(__ic_l1s_start, __ic_l1s_end); break;
+	case 2: lkl_ic_run(__ic_l2_start, __ic_l2_end);
+		lkl_ic_run(__ic_l2s_start, __ic_l2s_end); break;
+	case 3: lkl_ic_run(__ic_l3_start, __ic_l3_end);
+		lkl_ic_run(__ic_l3s_start, __ic_l3s_end); break;
+	case 4: lkl_ic_run(__ic_l4_start, __ic_l4_end);
+		lkl_ic_run(__ic_l4s_start, __ic_l4s_end); break;
+	case 5: lkl_ic_run(__ic_l5_start, __ic_l5_end);
+		lkl_ic_run(__ic_l5s_start, __ic_l5s_end);
+		lkl_ic_run(__ic_rootfs_start, __ic_rootfs_end); break;
+	case 6: lkl_ic_run(__ic_l6_start, __ic_l6_end);
+		lkl_ic_run(__ic_l6s_start, __ic_l6s_end); break;
+	case 7: lkl_ic_run(__ic_l7_start, __ic_l7_end);
+		lkl_ic_run(__ic_l7s_start, __ic_l7s_end); break;
+	}
+}
+
+static void __init do_initcalls(void)
+{
+	int level;
+	size_t len = saved_command_line_len + 1;
+	char *command_line;
+
+	command_line = kzalloc(len, GFP_KERNEL);
+	if (!command_line)
+		panic("%s: Failed to allocate %zu bytes\n", __func__, len);
+
+	for (level = 0; level < 8; level++) {
+		/* Parser modifies command_line, restore it each time */
+		strcpy(command_line, saved_command_line);
+		do_initcall_level(level, command_line);
+	}
+
+	kfree(command_line);
+}
+#endif /* __MACH__ */
 
 /*
  * Ok, the machine is now initialized. None of the devices
@@ -1368,11 +1455,16 @@ static void __init do_basic_setup(void)
 
 static void __init do_pre_smp_initcalls(void)
 {
+#ifndef __MACH__
 	initcall_entry_t *fn;
 
 	trace_initcall_level("early");
 	for (fn = __initcall_start; fn < __initcall0_start; fn++)
 		do_one_initcall(initcall_from_entry(fn));
+#else
+	trace_initcall_level("early");
+	lkl_ic_run(__ic_early_start, __ic_early_end);
+#endif
 }
 
 static int run_init_process(const char *init_filename)

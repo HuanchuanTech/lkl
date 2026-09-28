@@ -31,6 +31,13 @@ static __always_inline long do_strncpy_from_user(char *dst, const char __user *s
 	const struct word_at_a_time constants = WORD_AT_A_TIME_CONSTANTS;
 	unsigned long res = 0;
 
+#if defined(__MACH__)
+	/* macOS bring-up: the word-at-a-time path misreads short user strings
+	 * (no exception table for the trailing partial word); the byte loop reads
+	 * the in-process host pointer directly and is always safe in LKL. */
+	goto byte_at_a_time;
+#endif
+
 	if (IS_UNALIGNED(src, dst))
 		goto byte_at_a_time;
 

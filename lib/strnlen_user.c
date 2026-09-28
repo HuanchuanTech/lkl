@@ -26,6 +26,21 @@ static __always_inline long do_strnlen_user(const char __user *src, unsigned lon
 	unsigned long align, res = 0;
 	unsigned long c;
 
+#if defined(__MACH__)
+	/* macOS bring-up: read the in-process host pointer byte-at-a-time; the
+	 * word-at-a-time path misreads short user strings without an exception
+	 * table. Returns length including NUL, or count+1 if too long. */
+	{
+		const char *s = (const char __force *)src;
+		unsigned long i;
+
+		for (i = 0; i < max; i++)
+			if (!s[i])
+				return i + 1;
+		return count + 1;
+	}
+#endif
+
 	/*
 	 * Do everything aligned. But that means that we
 	 * need to also expand the maximum..
