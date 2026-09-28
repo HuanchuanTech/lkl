@@ -51,6 +51,12 @@ def main():
             raise ValueError(f"Nonportable flags for {unit}")
         objects.append({"object": member, "source": unit, "flags": flags})
     (output / "objects.json").write_text(json.dumps(objects, indent=2) + "\n")
+    generated = ["lib/crc32table.h", "lib/raid6/tables.c"]
+    generated.extend(f"lib/raid6/int{n}.c" for n in (1, 2, 4, 8))
+    for name in generated:
+        target = output / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(source / name, target)
     shutil.copyfile(source / ".config", output / "kernel.config")
     for directory in ("include/generated", "arch/lkl/include/generated"):
         for header in (source / directory).rglob("*.h"):

@@ -53,15 +53,21 @@ def main():
             for flag in member["flags"]:
                 if flag.startswith("-I") and "generated" in flag:
                     flags.append("-I" + str(profile / flag[2:].removeprefix("./")))
+                elif flag.removeprefix("./").startswith("include/generated/"):
+                    flags.append(str(profile / flag.removeprefix("./")))
                 else:
                     flags.append(flag)
+            unit = profile / member["source"]
+            if not unit.is_file():
+                unit = source / member["source"]
             command = [compiler, *target, "-ffreestanding", "-nostdinc",
-                       "-I" + str(profile / "include"), *flags,
+                       "-I" + str(profile / "include"), "-I" + str(profile / "lib"),
+                       "-I" + str(source / "lib/raid6"), *flags,
                        "-include", str(here / "macho_section_compat.h"),
                        "-D__DISABLE_EXPORTS", "-std=gnu11", "-fshort-wchar",
                        "-funsigned-char", "-fno-common", "-fno-strict-aliasing",
                        "-fno-builtin", "-fPIC", "-fno-stack-protector", "-O2", "-w",
-                       "-c", member["source"], "-o", str(output)]
+                       "-c", str(unit), "-o", str(output)]
             result = subprocess.run(command, cwd=source, text=True, capture_output=True)
             output.with_suffix(".log").write_text(result.stdout + result.stderr)
             if result.returncode:
