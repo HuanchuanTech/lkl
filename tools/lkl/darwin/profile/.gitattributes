@@ -1,2 +1,3 @@
 # Preserve upstream/generated header formatting verbatim.
 host-include/** -whitespace
+lib/** -whitespace

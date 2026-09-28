@@ -113,7 +113,7 @@ def main():
             obj.unlink()
     temporary = args.output / "liblkl.new.a"
     run(["xcrun", "lipo", "-create", *map(str, archives), "-output", str(temporary)])
-    run(["xcrun", "lipo", "-verify_arch", "arm64", "x86_64", str(temporary)])
+    run(["xcrun", "lipo", str(temporary), "-verify_arch", "arm64", "x86_64"])
     shutil.copytree(profile / "host-include", args.output / "include", dirs_exist_ok=True)
     temporary.replace(args.output / "liblkl.a")
     for archive in archives:
