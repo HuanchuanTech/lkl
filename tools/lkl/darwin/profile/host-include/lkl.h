@@ -254,7 +254,10 @@ static inline long lkl_sys_pipe(int fd[2])
  */
 static inline long lkl_sys_send(int fd, void *buf, size_t len, int flags)
 {
-	return lkl_sys_sendto(fd, buf, len, flags, 0, 0);
+	/* Typed socket wrappers are absent when CONFIG_NET is disabled. */
+	long args[6] = { fd, (long)buf, (long)len, flags, 0, 0 };
+
+	return lkl_syscall(__lkl__NR_sendto, args);
 }
 #endif
 
@@ -264,7 +267,9 @@ static inline long lkl_sys_send(int fd, void *buf, size_t len, int flags)
  */
 static inline long lkl_sys_recv(int fd, void *buf, size_t len, int flags)
 {
-	return lkl_sys_recvfrom(fd, buf, len, flags, 0, 0);
+	long args[6] = { fd, (long)buf, (long)len, flags, 0, 0 };
+
+	return lkl_syscall(__lkl__NR_recvfrom, args);
 }
 #endif
 

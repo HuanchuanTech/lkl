@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Capture the fixed Darwin profile from a prepared ELF/Mach-O bring-up tree.
+"""Capture the fixed Darwin profile from an in-tree ELF build.
 
 This maintainer tool is not part of the normal build. Review the exported
 configuration, object order and generated headers together when updating LKL.
@@ -12,20 +12,37 @@ import shutil
 import subprocess
 
 
+# These ELF units are supplied by boot_glue.S on Darwin. All other Kbuild
+# members must be exported, even when no previous Mach-O build exists.
+REPLACED_OBJECTS = {
+    "init/version.o",
+    "drivers/pci/quirks.o",
+    "drivers/pci/vpd.o",
+    "drivers/usb/host/pci-quirks.o",
+}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--prepared", type=Path, required=True)
     parser.add_argument("--llvm-ar", required=True)
+    parser.add_argument("--output", type=Path,
+                        default=Path(__file__).resolve().parent / "profile")
     args = parser.parse_args()
     source = args.prepared.resolve()
-    output = Path(__file__).resolve().parent / "profile"
+    config = (source / ".config").read_text()
+    if "CONFIG_64BIT=y\n" not in config or "CONFIG_CPU_BIG_ENDIAN=y\n" in config:
+        parser.error("The Darwin profile requires a 64-bit little-endian kernel")
+    if not (source / "tools/lkl/include/lkl/asm/syscalls.h").is_file():
+        parser.error("Install the prepared kernel headers with INSTALL_PATH=tools/lkl first")
+    output = args.output.resolve()
     output.mkdir(parents=True, exist_ok=True)
     members = []
     for archive in ("vmlinux.a", "lib/lib.a"):
         members.extend(subprocess.check_output(
             [args.llvm_ar, "t", archive], cwd=source, text=True).splitlines())
     members.append("init/version-timestamp.o")
-    members = [name for name in members if (source / (name + ".macho")).is_file()]
+    members = list(dict.fromkeys(name for name in members if name not in REPLACED_OBJECTS))
     sched = ["kernel/sched/build_policy.o", "kernel/sched/fair.o", "kernel/sched/build_idle.o"]
     insertion = min(members.index(name) for name in sched)
     members = [name for name in members if name not in sched]
@@ -59,16 +76,23 @@ def main():
         shutil.copyfile(source / name, target)
     shutil.copyfile(source / ".config", output / "kernel.config")
     for directory in ("include/generated", "arch/lkl/include/generated"):
+        if (output / directory).exists():
+            shutil.rmtree(output / directory)
         for header in (source / directory).rglob("*.h"):
             target = output / header.relative_to(source)
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(header, target)
+    if (output / "host-include").exists():
+        shutil.rmtree(output / "host-include")
     for header in (source / "tools/lkl/include").rglob("*.h"):
         if "mingw32" in header.parts:
             continue
         target = output / "host-include" / header.relative_to(source / "tools/lkl/include")
         target.parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(header, target)
+    (output / "host-include/lkl_autoconf.h").write_text(
+        '/* Fixed Darwin host ABI: arm64 and x86_64 are 64-bit little-endian. */\n'
+        '#define LKL_CONFIG_64BIT 1\n#define LKL_CONFIG_JSON_TOKEN_MAX 300\n')
     # Stable build identity: no developer name, host name, or local build time.
     (output / "include/generated/compile.h").write_text(
         '#define UTS_MACHINE "lkl"\n#define LINUX_COMPILE_BY "lkl"\n'
